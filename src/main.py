@@ -71,5 +71,5 @@ def main():
     print("Check completed.")
 
 
-if name == "main":
+if --name-- == "--main--":
     main()
