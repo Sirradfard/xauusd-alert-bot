@@ -13,12 +13,15 @@ def send_text(message):
 
     response = requests.post(
         url,
-        json={"chat_id": chat_id, "text": message},
+        json={
+            "chat_id": chat_id,
+            "text": message,
+        },
         timeout=20,
     )
 
     print("Telegram response:", response.text)
-response.raise_for_status()
+    response.raise_for_status()
 
     if not response.json().get("ok"):
         raise RuntimeError("Telegram rejected the message")
