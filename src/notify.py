@@ -10,18 +10,16 @@ def send_text(message):
         raise RuntimeError("Telegram secrets are not configured")
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+
     response = requests.post(
         url,
-        json={
-            "chat_id": chat_id,
-            "text": message,
-        },
+        json={"chat_id": chat_id, "text": message},
         timeout=20,
     )
+
     response.raise_for_status()
 
-    result = response.json()
-    if not result.get("ok"):
+    if not response.json().get("ok"):
         raise RuntimeError("Telegram rejected the message")
 
 
@@ -37,5 +35,3 @@ def send_alarm(direction, ref_time, ref_high, ref_low, touch_time, zone_low, zon
     )
 
     send_text(message)
-
-src/notify.py
