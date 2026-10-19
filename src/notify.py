@@ -17,7 +17,8 @@ def send_text(message):
         timeout=20,
     )
 
-    response.raise_for_status()
+    print("Telegram response:", response.text)
+response.raise_for_status()
 
     if not response.json().get("ok"):
         raise RuntimeError("Telegram rejected the message")
