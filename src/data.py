@@ -1,75 +1,90 @@
-import requests
+import lzma
+import struct
+from datetime import datetime, timedelta, timezone
+
 import pandas as pd
+import requests
 
-API_URL = "https://xaus.com/api/v1/chart"
+BASE_URL = "https://datafeed.dukascopy.com/datafeed"
 
 
-def fetch_candles(interval, period):
-    response = requests.get(
-        API_URL,
-        params={
-            "symbol": "xau",
-            "range": period,
-            "interval": interval,
-        },
-        timeout=30,
+def fetch_day(day):
+    url = (
+        f"{BASE_URL}/XAUUSD/{day.year}/"
+        f"{day.month - 1:02d}/{day.day:02d}/"
+        "BID_candles_min_1.bi5"
     )
+
+    response = requests.get(url, timeout=30)
+
+    if response.status_code == 404:
+        return []
+
     response.raise_for_status()
 
-    payload = response.json()
-    points = payload.get("points", [])
+    if not response.content:
+        return []
 
-    if not points:
-        raise RuntimeError(
-            "Gold API returned no candles: "
-            + str(payload)[:300]
+    raw = lzma.decompress(response.content, format=lzma.FORMAT_ALONE)
+    rows = []
+
+    for offset in range(0, len(raw), 24):
+        chunk = raw[offset:offset + 24]
+
+        if len(chunk) != 24:
+            continue
+
+        seconds, open_, close, low, high, volume = struct.unpack(
+            ">IIIIIf", chunk
         )
 
-    data = pd.DataFrame(points)
-    required = ["t", "o", "h", "l", "c"]
+        rows.append({
+            "Time": day + timedelta(seconds=seconds),
+            "Open": open_ / 1000,
+            "High": high / 1000,
+            "Low": low / 1000,
+            "Close": close / 1000,
+        })
 
-    if not all(column in data.columns for column in required):
-        raise RuntimeError(
-            "Unexpected API response: "
-            + str(list(data.columns))
-        )
+    return rows
 
-    data = data.rename(columns={
-        "t": "Time",
-        "o": "Open",
-        "h": "High",
-        "l": "Low",
-        "c": "Close",
-        "v": "Volume",
-    })
 
-    data["Time"] = pd.to_datetime(
-        data["Time"], unit="s", utc=True
+def fetch_candles(days):
+    end = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
     )
+    start = end - timedelta(days=days)
+    rows = []
+    day = start
 
-    data = data.set_index("Time")
-    data = data[["Open", "High", "Low", "Close"]]
-    data = data.apply(pd.to_numeric, errors="coerce")
-    data = data.dropna().sort_index()
+    while day <= end:
+        rows.extend(fetch_day(day))
+        day += timedelta(days=1)
 
-    if data.empty:
-        raise RuntimeError("Gold candle data is empty")
+    if not rows:
+        raise RuntimeError("Dukascopy returned no gold candles")
 
-    return data
+    data = pd.DataFrame(rows)
+    data["Time"] = pd.to_datetime(data["Time"], utc=True)
+    data = data.set_index("Time").sort_index()
+    return data[["Open", "High", "Low", "Close"]]
 
 
 def fetch_h1():
-    return fetch_candles("1h", "1mo")
-
-
-def fetch_m3():
-    data = fetch_candles("1m", "5d")
-
-    candles = data.resample("3min").agg({
+    data = fetch_candles(35)
+    return data.resample("1h").agg({
         "Open": "first",
         "High": "max",
         "Low": "min",
         "Close": "last",
     }).dropna()
 
-    return candles
+
+def fetch_m3():
+    data = fetch_candles(5)
+    return data.resample("3min").agg({
+        "Open": "first",
+        "High": "max",
+        "Low": "min",
+        "Close": "last",
+    }).dropna()
