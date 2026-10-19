@@ -2,7 +2,7 @@ import yfinance as yf
 import pandas as pd
 
 
-SYMBOL = "XAUUSD=X"
+SYMBOL = "GC=F"
 
 
 def fetch_h1():
