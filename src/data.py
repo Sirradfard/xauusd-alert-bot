@@ -1,55 +1,75 @@
-import yfinance as yf
+import requests
 import pandas as pd
 
+API_URL = "https://xaus.com/api/v1/chart"
 
-SYMBOL = "GC=F"
+
+def fetch_candles(interval, period):
+    response = requests.get(
+        API_URL,
+        params={
+            "symbol": "xau",
+            "range": period,
+            "interval": interval,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    points = payload.get("points", [])
+
+    if not points:
+        raise RuntimeError(
+            "Gold API returned no candles: "
+            + str(payload)[:300]
+        )
+
+    data = pd.DataFrame(points)
+    required = ["t", "o", "h", "l", "c"]
+
+    if not all(column in data.columns for column in required):
+        raise RuntimeError(
+            "Unexpected API response: "
+            + str(list(data.columns))
+        )
+
+    data = data.rename(columns={
+        "t": "Time",
+        "o": "Open",
+        "h": "High",
+        "l": "Low",
+        "c": "Close",
+        "v": "Volume",
+    })
+
+    data["Time"] = pd.to_datetime(
+        data["Time"], unit="s", utc=True
+    )
+
+    data = data.set_index("Time")
+    data = data[["Open", "High", "Low", "Close"]]
+    data = data.apply(pd.to_numeric, errors="coerce")
+    data = data.dropna().sort_index()
+
+    if data.empty:
+        raise RuntimeError("Gold candle data is empty")
+
+    return data
 
 
 def fetch_h1():
-    data = yf.download(
-        SYMBOL,
-        period="10d",
-        interval="1h",
-        auto_adjust=False,
-        progress=False,
-    )
-
-    if data.empty:
-        raise RuntimeError("No H1 data received for " + SYMBOL)
-
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-
-    data = data[["Open", "High", "Low", "Close"]].dropna()
-    data.index = pd.to_datetime(data.index, utc=True)
-
-    return data.sort_index()
+    return fetch_candles("1h", "1mo")
 
 
 def fetch_m3():
-    data = yf.download(
-        SYMBOL,
-        period="5d",
-        interval="1m",
-        auto_adjust=False,
-        progress=False,
-    )
-
-    if data.empty:
-        raise RuntimeError("No M1 data received for " + SYMBOL)
-
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-
-    data = data[["Open", "High", "Low", "Close", "Volume"]].dropna()
-    data.index = pd.to_datetime(data.index, utc=True)
+    data = fetch_candles("1m", "5d")
 
     candles = data.resample("3min").agg({
         "Open": "first",
         "High": "max",
         "Low": "min",
         "Close": "last",
-        "Volume": "sum",
-    }).dropna(subset=["Open", "High", "Low", "Close"])
+    }).dropna()
 
-    return candles.sort_index()
+    return candles
